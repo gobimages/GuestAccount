@@ -120,57 +120,39 @@ Function Get-AllUsers {
 }
 $AllUserDataResults = Get-AllUsers | Sort-Object -Property UserPrincipalName -Unique
 ##########################OUTFROM-SYNCENGINE########################################
-#Function Push-ROSPOC {
+Function Push-ROSPOC{
     [array]$Addbody = @()
-    [array]$Delbody = @()
-    $RedirectURI = "https://myapp.microsoft.com"
-    $body = @()
-    $Token = Invoke-RestMethod -Uri "https://login.microsoftonline.com/81b2b335-4298-4b51-837e-e71a9da239b0/oauth2/v2.0/token" -Method POST -Body $ReqTokenBody
-    #$TenantID = Get-AutomationVariable -Name 'Guest_ROSPOC_TenantID'
-    #Connect-azureAD -TenantId $TenantID -ApplicationId $clientId -CertificateThumbprint $Cred
-    foreach ($output in $AllUserDataResults) {
-        switch ($output.Result) {
- { $output.Result -eq "Add" } {   
-                [string]$UPN = $output.UserPrincipalName
-                [string]$GivenName = $output.GivenName
-                [string]$Surname = $output.Surname
-                [string]$EmployeeID = $output.EmployeeID
-                $DisplayName = "$GivenName $Surname"
-                [string]$email = [System.Web.HttpUtility]::UrlEncode(($UPN -replace "@", "_") + "#EXT#@rospoc.onmicrosoft.com")
-                Try {
-                    $GraphAddUser = "https://graph.microsoft.com/BETA/users/$email"
-                    Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $GraphAddUser -Method Get -ErrorAction SilentlyContinue
-                    write-output "User with Display Name $DisplayName and UserPrincipalName $UPN exist."
-                }
-                catch {
-                    $body = @{
-                        "invitedUserEmailAddress" = $UPN
-                        "inviteRedirectUrl"       = $RedirectURI
-                        "invitedUserDisplayName"  = $DisplayName
-                    } | ConvertTo-Json
-                    $AddUserGraph = "https://graph.microsoft.com/v1.0/invitations"
-                    Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $AddUserGraph -Method POST -Body $body
-                    $Addbody += [PSCustomObject]@{
-                        "Display Name"     = $DisplayName
-                        UserPrincipalName  = $UPN
-                        "Removed UserName" = $null
-                }
-
-            }   
-            }
- { $output.Result -eq "Restore" } {  
-                [string]$UPN = $output.UserPrincipalName
-            
-                Try {
-                $GraphCheckUser = "https://graph.microsoft.com/BETA/directory/deletedItems/microsoft.graph.user?`$filter=startswith(mail, '$UPN')"
-                $DataGraphcheckUser = Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $GraphCheckUser -Method Get -ErrorAction SilentlyContinue
-                $ObjectID = $DataGraphCheckUser.value.id
-                $GraphRestoreUser = "https://graph.microsoft.com/v1.0/directory/deletedItems/$ObjectID/restore"
-                $DataGraphRestoreUser = Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)"} -ContentType "application/json" -Uri $GraphRestoreUser -Method POST -ErrorAction SilentlyContinue
+[array]$Delbody = @()
+$RedirectURI = "https://myapp.microsoft.com"
+$body = @()
+$Token = Invoke-RestMethod -Uri "https://login.microsoftonline.com/81b2b335-4298-4b51-837e-e71a9da239b0/oauth2/v2.0/token" -Method POST -Body $ReqTokenBody
+#$TenantID = Get-AutomationVariable -Name 'Guest_ROSPOC_TenantID'
+#Connect-azureAD -TenantId $TenantID -ApplicationId $clientId -CertificateThumbprint $Cred
+foreach ($output in $AllUserDataResults) {
+    switch ($output.Result) {
+{ ($output.Result -eq "Add") -or ($output.Result -eq "Restore") } {   
+            [string]$UPN = $output.UserPrincipalName
+            [string]$GivenName = $output.GivenName
+            [string]$Surname = $output.Surname
+            [string]$EmployeeID = $output.EmployeeID
+            $DisplayName = "$GivenName $Surname"
+            [string]$email = [System.Web.HttpUtility]::UrlEncode(($UPN -replace "@", "_") + "#EXT#@rospoc.onmicrosoft.com")
+            Try {
+                $GraphCheckUserAdd = "https://graph.microsoft.com/BETA/directory/deletedItems/microsoft.graph.user?`$filter=startswith(mail, '$UPN')"
+                $DataGraphcheckUserAdd = Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $GraphCheckUserAdd -Method Get -ErrorAction SilentlyContinue
+                $ObjectID = $DataGraphcheckUserAdd.value.id
+                $GraphRestoreUserAdd = "https://graph.microsoft.com/v1.0/directory/deletedItems/$ObjectID/restore"
+                Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -ContentType "application/json" -Uri $GraphRestoreUserAdd -Method POST -ErrorAction SilentlyContinue
                 write-output "User with Display Name $DisplayName and UserPrincipalName $UPN has been restored."
             }
             catch {
-                $body = @{
+                try {
+                    $GraphAddUser = "https://graph.microsoft.com/BETA/users/$email"
+                Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $GraphAddUser -Method Get -ErrorAction SilentlyContinue
+                write-output "User with Display Name $DisplayName and UserPrincipalName $UPN already exist."
+                }
+                catch {
+                     $body = @{
                     "invitedUserEmailAddress" = $UPN
                     "inviteRedirectUrl"       = $RedirectURI
                     "invitedUserDisplayName"  = $DisplayName
@@ -181,48 +163,49 @@ $AllUserDataResults = Get-AllUsers | Sort-Object -Property UserPrincipalName -Un
                     "Display Name"     = $DisplayName
                     UserPrincipalName  = $UPN
                     "Removed UserName" = $null
+                    
             }
-        }   
-    }
- { $output.Result -eq "Delete" } {  
-                [string]$UPN = $output.UserPrincipalName
-                [string]$email = [System.Web.HttpUtility]::UrlEncode(($UPN -replace "@", "_") + "#EXT#@rospoc.onmicrosoft.com")
-                Try {
-                    $UserDel = "https://graph.microsoft.com/BETA/users/$email"
-                    Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $UserDel -Method Delete -ErrorAction SilentlyContinue
-                    $Delbody += [PSCustomObject]@{  
-                        "Display Name"     = $null
-                        UserPrincipalName  = $null
-                        "Removed UserName" = $UPN
-                    }
                 }
-                catch {
-                    write-output " $UPN User Does not Exist or has been already deleted"
-                }  
-            }
-        
+        }   
         }
+{ $output.Result -eq "Delete" } {  
+            [string]$UPN = $output.UserPrincipalName
+            [string]$email = [System.Web.HttpUtility]::UrlEncode(($UPN -replace "@", "_") + "#EXT#@rospoc.onmicrosoft.com")
+            Try {
+                $UserDel = "https://graph.microsoft.com/BETA/users/$email"
+                Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $UserDel -Method Delete -ErrorAction SilentlyContinue
+                $Delbody += [PSCustomObject]@{  
+                    "Display Name"     = $null
+                    UserPrincipalName  = $null
+                    "Removed UserName" = $UPN
+                }
+            }
+            catch {
+                write-output " $UPN User Does not Exist or has been already deleted"
+            }  
+        }
+    
+    }
 }
-<# $body += $Addbody
-$body += $Delbody
-write-output $body
+$mailbody += $Addbody
+$mailbody += $Delbody
+write-output $mailbody
 $style = "<style>BODY{font-family: Arial; font-size: 10pt;}"
 $style = $style + "TABLE{border: 1px solid black; border-collapse: collapse;}"
 $style = $style + "TH{border: 1px solid black; background: #dddddd; padding: 5px; }"
 $style = $style + "TD{border: 1px solid black; padding: 5px; }"
 $style = $style + "</style>"
-$Header = Out-String -InputObject ($body | ConvertTo-Html -head $style -Body "<font color=`"Black`"><h4><left>Guest Users Report</left></h4></font>")
+$Header = Out-String -InputObject ($mailbody | ConvertTo-Html -head $style -Body "<font color=`"Black`"><h4><left>Guest Users Report</left></h4></font>")
 $mailParams = @{
-    SmtpServer                 = 'smtp.office365.com'
-    Port                       = '587' # or '25' if not using TLS
-    UseSSL                     = $true ## or not if using non-TLS
-    Credential                 = $Credentials
-    From                       = 'gobinath@rospoc.onmicrosoft.com'
-    To                         = 'v-gomage@microsoft.com'
-    Subject                    = "Guest Account Created"
-    DeliveryNotificationOption = 'OnFailure', 'OnSuccess'
+SmtpServer                 = 'smtp.office365.com'
+Port                       = '587' # or '25' if not using TLS
+UseSSL                     = $true ## or not if using non-TLS
+Credential                 = $Credentials
+From                       = 'gobinath@rospoc.onmicrosoft.com'
+To                         = 'v-gomage@microsoft.com'
+Subject                    = "Guest Account Created"
+DeliveryNotificationOption = 'OnFailure', 'OnSuccess'
 }
-if ($body -ne $null) { Send-MailMessage @mailParams -Body $Header -BodyAsHtml } #>
-#}
-#Push-ROSPOC
+if ($mailbody -ne $null){Send-MailMessage @mailParams -Body $Header -BodyAsHtml}
+}
 
