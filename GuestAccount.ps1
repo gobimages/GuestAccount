@@ -4,7 +4,7 @@ $clientId = "16caf9d1-e04f-41d0-9ddf-931a6f571de5"
 $tenantName = "f429c771-2ff9-43d7-97e9-8f312cea4346"
 $clientSecret = "y=f/gfYcrd?gujAShsRueC8Ndy2Ca[51"
 #$clientSecret = "PYxQ@-XLr?A:RkNfZAnyJLIIhzVi4431"
-$resource = "https://graph.microsoft.com/"
+#$resource = "https://graph.microsoft.com/"
 
 #Variable date-time for the last 1hr
 $date = (Get-Date).AddHours(-2).ToString("yyyy-MM-ddTHH:MM:ssZ")
@@ -120,7 +120,7 @@ Function Get-AllUsers {
 }
 $AllUserDataResults = Get-AllUsers | Sort-Object -Property UserPrincipalName -Unique
 ##########################OUTFROM-SYNCENGINE########################################
-Function Push-ROSPOC{
+Function Push-ROSPOC {
     [array]$Addbody = @()
 [array]$Delbody = @()
 $RedirectURI = "https://myapp.microsoft.com"
@@ -130,7 +130,7 @@ $Token = Invoke-RestMethod -Uri "https://login.microsoftonline.com/81b2b335-4298
 #Connect-azureAD -TenantId $TenantID -ApplicationId $clientId -CertificateThumbprint $Cred
 foreach ($output in $AllUserDataResults) {
     switch ($output.Result) {
-{ ($output.Result -eq "Add") -or ($output.Result -eq "Restore") } {   
+ { ($output.Result -eq "Add") -or ($output.Result -eq "Restore") } {   
             [string]$UPN = $output.UserPrincipalName
             [string]$GivenName = $output.GivenName
             [string]$Surname = $output.Surname
@@ -158,17 +158,27 @@ foreach ($output in $AllUserDataResults) {
                     "invitedUserDisplayName"  = $DisplayName
                 } | ConvertTo-Json
                 $AddUserGraph = "https://graph.microsoft.com/v1.0/invitations"
-                Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $AddUserGraph -Method POST -Body $body
-                $Addbody += [PSCustomObject]@{
-                    "Display Name"     = $DisplayName
-                    UserPrincipalName  = $UPN
-                    "Removed UserName" = $null
-                    
-            }
+                $AddUserGraphData = Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $AddUserGraph -Method POST -Body $body
+                
+            $GuestId = $AddUserGraphData.value.invitedUser.id
+            $template = @{
+                "givenName"  = $GivenName
+                "surname"    = $Surname
+                "employeeId" = $EmployeeID
+            } | ConvertTo-Json
+            $AddGuestGraph = "https://graph.microsoft.com/beta/users/$GuestId"
+            $AddUserGraphData = Invoke-RestMethod -Headers @{Authorization = "Bearer $($Token.access_token)" } -Uri $AddGuestGraph -ContentType "application/json" -Method PATCH -Body $template
+            $Addbody += [PSCustomObject]@{
+                "Display Name"     = $DisplayName
+                UserPrincipalName  = $UPN
+                "Removed UserName" = $null
+                
+        }
+
                 }
         }   
         }
-{ $output.Result -eq "Delete" } {  
+ { $output.Result -eq "Delete" } {  
             [string]$UPN = $output.UserPrincipalName
             [string]$email = [System.Web.HttpUtility]::UrlEncode(($UPN -replace "@", "_") + "#EXT#@rospoc.onmicrosoft.com")
             Try {
@@ -206,6 +216,6 @@ To                         = 'v-gomage@microsoft.com'
 Subject                    = "Guest Account Created"
 DeliveryNotificationOption = 'OnFailure', 'OnSuccess'
 }
-if ($mailbody -ne $null){Send-MailMessage @mailParams -Body $Header -BodyAsHtml}
+if ($mailbody -ne $null) { Send-MailMessage @mailParams -Body $Header -BodyAsHtml }
 }
-
+Push-ROSPOC
